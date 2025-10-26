@@ -59,8 +59,13 @@ case "$1" in
         exec /app/service_manager.sh start
         ;;
     "bash")
-        echo "🐚 Starting interactive bash shell..."
-        exec /bin/bash
+        if [ "$#" -gt 1 ]; then
+            echo "� Running custom command: $@"
+            exec "$@"
+        else
+            echo "�🐚 Starting interactive bash shell..."
+            exec /bin/bash
+        fi
         ;;
     *)
         echo "🔧 Running custom command: $@"

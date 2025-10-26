@@ -2,6 +2,7 @@
 # Build and Push Script for ML-Enhanced Snort Docker Image
 
 set -e
+set -o pipefail
 
 # Configuration
 DOCKER_REGISTRY="docker.io"
