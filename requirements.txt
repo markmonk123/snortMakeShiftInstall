@@ -1,0 +1,9 @@
+# Python requirements for Snort3 Installer
+# This tool uses only Python standard library modules
+# No external packages required
+
+# The following system packages are required and will be installed by the script:
+# - Python 3.6+
+# - build-essential
+# - cmake
+# - Various Snort3 dependencies (installed automatically)
