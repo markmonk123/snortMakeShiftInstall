@@ -13,6 +13,14 @@ if ! command -v snort &> /dev/null; then
     exit 1
 fi
 
+# Ensure OpenAI API configuration is in place before attempting Snort operations
+if [ -x /app/setup_openai_api.sh ]; then
+    echo "🛠️  Ensuring OpenAI API configuration..."
+    if ! /app/setup_openai_api.sh --auto; then
+        echo "⚠️  Automatic OpenAI setup encountered an issue. Continuing without OpenAI integration."
+    fi
+fi
+
 # Test Snort3 configuration
 echo "🔍 Testing Snort3 configuration..."
 if ! snort -T -c /usr/local/etc/snort/snort.lua >/dev/null 2>&1; then

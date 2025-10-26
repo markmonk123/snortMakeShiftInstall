@@ -11,6 +11,144 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+usage() {
+    cat <<'EOF'
+Usage: setup_openai_api.sh [options]
+
+Options:
+  --auto                 Run in non-interactive mode; requires ML_API_KEY env var
+  --auto-config-only     Auto-create only the secure JSON configuration file
+  --auto-env-only        Auto-create only the environment export file
+  --force                Overwrite existing files when running in auto mode
+  -h, --help             Show this help message
+EOF
+}
+
+AUTO_MODE=false
+AUTO_CREATE_CONFIG=true
+AUTO_CREATE_ENV=true
+OVERWRITE=false
+API_KEY=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --auto)
+            AUTO_MODE=true
+            AUTO_CREATE_CONFIG=true
+            AUTO_CREATE_ENV=true
+            shift
+            ;;
+        --auto-config-only)
+            AUTO_MODE=true
+            AUTO_CREATE_CONFIG=true
+            AUTO_CREATE_ENV=false
+            shift
+            ;;
+        --auto-env-only)
+            AUTO_MODE=true
+            AUTO_CREATE_CONFIG=false
+            AUTO_CREATE_ENV=true
+            shift
+            ;;
+        --force)
+            OVERWRITE=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+SECURE_DIR="/etc/snort/ml_runner"
+CONFIG_FILE="${SECURE_DIR}/api_config.json"
+ENV_FILE="${SECURE_DIR}/ml_runner.env"
+CREATED_BY="${SUDO_USER:-$(whoami)}"
+
+ensure_secure_dir() {
+    mkdir -p "$SECURE_DIR"
+    chmod 700 "$SECURE_DIR"
+}
+
+create_config_file() {
+    if [ -f "$CONFIG_FILE" ] && [ "$OVERWRITE" = false ]; then
+        echo "ℹ️  Configuration file already exists at $CONFIG_FILE (use --force to overwrite)."
+        return 0
+    fi
+
+    ensure_secure_dir
+
+    cat > "$CONFIG_FILE" << EOF
+{
+    "ml_api_key": "$API_KEY",
+    "ml_model_type": "openai",
+    "ml_model_name": "gpt-4",
+    "confidence_threshold": 0.98,
+    "created_date": "$(date -I)",
+    "created_by": "$CREATED_BY"
+}
+EOF
+
+    chmod 600 "$CONFIG_FILE"
+    chown root:root "$CONFIG_FILE"
+    echo "✅ Configuration file ready at $CONFIG_FILE"
+}
+
+create_env_file() {
+    if [ -f "$ENV_FILE" ] && [ "$OVERWRITE" = false ]; then
+        echo "ℹ️  Environment file already exists at $ENV_FILE (use --force to overwrite)."
+        return 0
+    fi
+
+    ensure_secure_dir
+
+    cat > "$ENV_FILE" << EOF
+# ML-Enhanced Snort Runner Environment Variables
+# Source this file before running: source $ENV_FILE
+
+export ML_API_KEY="$API_KEY"
+export ML_MODEL_TYPE="openai"
+export ML_MODEL_NAME="gpt-4"
+export CONFIDENCE_THRESHOLD="0.98"
+
+# Usage:
+# source $ENV_FILE
+# sudo -E python3 main.py --model openai
+EOF
+
+    chmod 600 "$ENV_FILE"
+    chown root:root "$ENV_FILE"
+    echo "✅ Environment file ready at $ENV_FILE"
+}
+
+if [ "$AUTO_MODE" = true ]; then
+    API_KEY="${ML_API_KEY:-${OPENAI_API_KEY:-}}"
+
+    if [ -z "$API_KEY" ]; then
+        echo "ℹ️  ML_API_KEY not provided; skipping automatic OpenAI setup."
+        exit 0
+    fi
+
+    echo "⚙️  Running OpenAI setup in auto mode."
+
+    if [ "$AUTO_CREATE_CONFIG" = true ]; then
+        create_config_file
+    fi
+
+    if [ "$AUTO_CREATE_ENV" = true ]; then
+        create_env_file
+    fi
+
+    echo "✅ Auto setup complete."
+    exit 0
+fi
+
 echo ""
 echo "📋 You need to obtain an OpenAI API key manually:"
 echo "   1. Visit: https://platform.openai.com/api-keys"
@@ -35,14 +173,10 @@ if [[ $create_config =~ ^[Yy]$ ]]; then
     echo ""
     echo "🔐 Creating secure configuration file..."
     
-    # Create secure directory
-    mkdir -p /etc/snort/ml_runner
-    chmod 700 /etc/snort/ml_runner
-    
     # Prompt for API key
     echo ""
     echo "⚠️  IMPORTANT: Your API key will be stored securely"
-    echo "   File: /etc/snort/ml_runner/api_config.json"
+    echo "   File: $CONFIG_FILE"
     echo "   Permissions: 600 (root only)"
     echo ""
     read -p "Enter your OpenAI API key: " -s api_key
@@ -52,29 +186,12 @@ if [[ $create_config =~ ^[Yy]$ ]]; then
         echo "❌ No API key provided. Exiting."
         exit 1
     fi
-    
-    # Create config file
-    cat > /etc/snort/ml_runner/api_config.json << EOF
-{
-    "ml_api_key": "$api_key",
-    "ml_model_type": "openai",
-    "ml_model_name": "gpt-4",
-    "confidence_threshold": 0.98,
-    "created_date": "$(date -I)",
-    "created_by": "$SUDO_USER"
-}
-EOF
-    
-    # Set secure permissions
-    chmod 600 /etc/snort/ml_runner/api_config.json
-    chown root:root /etc/snort/ml_runner/api_config.json
-    
-    echo "✅ Configuration file created successfully!"
-    echo "   Location: /etc/snort/ml_runner/api_config.json"
-    echo "   Permissions: 600 (root read/write only)"
+
+    API_KEY="$api_key"
+    create_config_file
     echo ""
     echo "🚀 You can now run:"
-    echo "   sudo python3 main.py --config /etc/snort/ml_runner/api_config.json"
+    echo "   sudo python3 main.py --config $CONFIG_FILE"
     echo ""
 fi
 
@@ -87,40 +204,20 @@ if [[ $create_env =~ ^[Yy]$ ]]; then
     echo "🔐 Creating system environment file..."
     
     # Prompt for API key if not already provided
-    if [ -z "$api_key" ]; then
+    if [ -z "$API_KEY" ]; then
         echo ""
         read -p "Enter your OpenAI API key: " -s api_key
         echo ""
+        API_KEY="$api_key"
     fi
     
-    if [ -z "$api_key" ]; then
+    if [ -z "$API_KEY" ]; then
         echo "❌ No API key provided. Skipping environment file."
     else
-        # Create environment file
-        cat > /etc/snort/ml_runner/ml_runner.env << EOF
-# ML-Enhanced Snort Runner Environment Variables
-# Source this file before running: source /etc/snort/ml_runner/ml_runner.env
-
-export ML_API_KEY="$api_key"
-export ML_MODEL_TYPE="openai"
-export ML_MODEL_NAME="gpt-4"
-export CONFIDENCE_THRESHOLD="0.98"
-
-# Usage:
-# source /etc/snort/ml_runner/ml_runner.env
-# sudo -E python3 main.py --model openai
-EOF
-        
-        # Set secure permissions
-        chmod 600 /etc/snort/ml_runner/ml_runner.env
-        chown root:root /etc/snort/ml_runner/ml_runner.env
-        
-        echo "✅ Environment file created successfully!"
-        echo "   Location: /etc/snort/ml_runner/ml_runner.env"
-        echo "   Permissions: 600 (root read/write only)"
+        create_env_file
         echo ""
         echo "🚀 You can now run:"
-        echo "   source /etc/snort/ml_runner/ml_runner.env"
+        echo "   source $ENV_FILE"
         echo "   sudo -E python3 main.py --model openai"
         echo ""
     fi
