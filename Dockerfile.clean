@@ -1,0 +1,108 @@
+# ML-Enhanced Snort3 IDS/IPS with AI Analysis
+FROM ubuntu:22.04
+
+# Metadata
+LABEL maintainer="TeamEliteKRB"
+LABEL description="Snort3 IDS/IPS with ML-Enhanced threat analysis and automated rule generation"
+LABEL version="1.0"
+LABEL repository="teamelitekrb/snort-dev-ml-enhanced"
+LABEL tag="snortDevML"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV SNORT_VERSION=3.1.75.0
+ENV DAQ_VERSION=3.0.13
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies and Python 3.9
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y \
+    build-essential cmake git wget curl \
+    autotools-dev libdumbnet-dev libluajit-5.1-dev \
+    libpcap-dev zlib1g-dev pkg-config libhwloc-dev \
+    libunwind-dev libgoogle-perftools-dev \
+    autoconf libtool flex bison net-tools tcpdump \
+    iproute2 python3.9 python3.9-dev python3.9-venv python3.9-distutils \
+    libssl-dev libnghttp2-dev libpcre3-dev uuid-dev \
+    sudo nano htop tree psmisc \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Configure Python 3.9 virtual environment
+RUN python3.9 -m venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip tooling inside the virtual environment
+RUN python -m ensurepip --upgrade && \
+    pip install --upgrade pip setuptools wheel
+
+# Install Python packages (Python 3.9 environment)
+RUN pip install --no-cache-dir \
+    openai requests asyncio aiofiles \
+    scikit-learn numpy pandas python-dateutil psutil
+
+# Create directories
+RUN mkdir -p /var/log/snort /var/run /etc/snort/rules /etc/snort/ml_runner /usr/local/src /usr/local/etc/snort/rules
+
+# Build and install LibDAQ
+RUN cd /usr/local/src && \
+    wget https://github.com/snort3/libdaq/archive/refs/tags/v${DAQ_VERSION}.tar.gz && \
+    tar -xzf v${DAQ_VERSION}.tar.gz && \
+    cd libdaq-${DAQ_VERSION} && \
+    ./bootstrap && \
+    ./configure && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
+
+# Build and install Snort3
+RUN cd /usr/local/src && \
+    wget https://github.com/snort3/snort3/archive/refs/tags/${SNORT_VERSION}.tar.gz && \
+    tar -xzf ${SNORT_VERSION}.tar.gz && \
+    cd snort3-${SNORT_VERSION} && \
+    ./configure_cmake.sh --prefix=/usr/local --enable-tcmalloc && \
+    cd build && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
+
+# Copy application files
+COPY . /app/
+
+# Copy configurations
+RUN if [ -f /app/examples/snort.lua ]; then \
+        cp /app/examples/snort.lua /usr/local/etc/snort/ 2>/dev/null || true; \
+    fi && \
+    if [ -f /app/examples/local.rules ]; then \
+        cp /app/examples/local.rules /usr/local/etc/snort/rules/ 2>/dev/null || true; \
+    fi
+
+# Set permissions
+RUN chmod +x /app/*.sh /app/*.py && \
+    chmod +x /app/docker-entrypoint.sh && \
+    chown -R root:root /app /var/log/snort /etc/snort
+
+# Expose ports
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep -f snort > /dev/null || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
+# Default command
+CMD ["services"]
+
+# Container metadata
+LABEL org.opencontainers.image.title="ML-Enhanced Snort3"
+LABEL org.opencontainers.image.description="Snort3 IDS/IPS with AI-powered threat analysis"
+LABEL org.opencontainers.image.version="1.0"
+LABEL org.opencontainers.image.authors="TeamEliteKRB"

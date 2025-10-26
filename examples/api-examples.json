@@ -1,0 +1,144 @@
+{
+  "workflow_examples": {
+    "ids_ips_analysis": {
+      "description": "Trigger IDS/IPS packet analysis via API",
+      "method": "POST",
+      "endpoint": "https://api.github.com/repos/{owner}/{repo}/dispatches",
+      "headers": {
+        "Accept": "application/vnd.github+json",
+        "Authorization": "Bearer YOUR_PERSONAL_ACCESS_TOKEN",
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      "body": {
+        "event_type": "analyze_packets",
+        "client_payload": {
+          "pcap_file": "captured_traffic.pcap",
+          "analysis_mode": "ips",
+          "sensitivity": "high"
+        }
+      },
+      "curl_example": "curl -L -X POST -H \"Accept: application/vnd.github+json\" -H \"Authorization: Bearer YOUR_PAT\" -H \"X-GitHub-Api-Version: 2022-11-28\" https://api.github.com/repos/{owner}/{repo}/dispatches -d '{\"event_type\":\"analyze_packets\",\"client_payload\":{\"pcap_file\":\"traffic.pcap\",\"analysis_mode\":\"ips\",\"sensitivity\":\"high\"}}'"
+    },
+    "packet_filtering": {
+      "description": "Trigger packet filtering workflow via API",
+      "method": "POST",
+      "endpoint": "https://api.github.com/repos/{owner}/{repo}/dispatches",
+      "headers": {
+        "Accept": "application/vnd.github+json",
+        "Authorization": "Bearer YOUR_PERSONAL_ACCESS_TOKEN",
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      "body": {
+        "event_type": "filter_packets",
+        "client_payload": {
+          "analysis_results": "/path/to/analysis.json",
+          "mode": "automatic"
+        }
+      },
+      "curl_example": "curl -L -X POST -H \"Accept: application/vnd.github+json\" -H \"Authorization: Bearer YOUR_PAT\" -H \"X-GitHub-Api-Version: 2022-11-28\" https://api.github.com/repos/{owner}/{repo}/dispatches -d '{\"event_type\":\"filter_packets\",\"client_payload\":{\"mode\":\"automatic\"}}'"
+    },
+    "runner_communication": {
+      "description": "Send alert to communication hub",
+      "method": "POST",
+      "endpoint": "https://api.github.com/repos/{owner}/{repo}/dispatches",
+      "headers": {
+        "Accept": "application/vnd.github+json",
+        "Authorization": "Bearer YOUR_PERSONAL_ACCESS_TOKEN",
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      "body": {
+        "event_type": "alert_triggered",
+        "client_payload": {
+          "severity": "critical",
+          "message": "Potential security breach detected",
+          "source": "automated_monitoring"
+        }
+      },
+      "curl_example": "curl -L -X POST -H \"Accept: application/vnd.github+json\" -H \"Authorization: Bearer YOUR_PAT\" -H \"X-GitHub-Api-Version: 2022-11-28\" https://api.github.com/repos/{owner}/{repo}/dispatches -d '{\"event_type\":\"alert_triggered\",\"client_payload\":{\"severity\":\"critical\",\"message\":\"Security breach detected\"}}'"
+    }
+  },
+  "analysis_results_schema": {
+    "description": "Expected format for analysis results JSON",
+    "example": {
+      "timestamp": "2025-10-26T04:08:00Z",
+      "mode": "ips",
+      "sensitivity": "high",
+      "pcap_file": "network_traffic.pcap",
+      "alerts": [
+        {
+          "alert_id": 1,
+          "timestamp": "2025-10-26T04:05:30Z",
+          "severity": "high",
+          "rule_id": "1000001",
+          "message": "Suspicious SSH traffic detected",
+          "source_ip": "192.168.1.100",
+          "destination_ip": "10.0.0.50",
+          "protocol": "tcp",
+          "port": 22
+        }
+      ],
+      "statistics": {
+        "packets_analyzed": 15420,
+        "alerts_triggered": 23,
+        "threats_detected": 5,
+        "packets_dropped": 12,
+        "analysis_duration_seconds": 45.3
+      },
+      "recommendations": [
+        {
+          "action": "block",
+          "target": "192.168.1.100",
+          "reason": "Multiple failed SSH authentication attempts",
+          "confidence": 0.95
+        }
+      ]
+    }
+  },
+  "filter_rules_schema": {
+    "description": "Expected format for generated Snort rules",
+    "example": {
+      "rules": [
+        "drop tcp 192.168.1.100 any -> any 22 (msg:\"Block suspicious SSH source\"; sid:1000100; rev:1;)",
+        "alert tcp any any -> 10.0.0.50 any (msg:\"Monitor traffic to compromised host\"; sid:1000101; rev:1;)"
+      ],
+      "metadata": {
+        "generated_at": "2025-10-26T04:10:00Z",
+        "source": "automated_analysis",
+        "mode": "automatic",
+        "rules_count": 2
+      }
+    }
+  },
+  "communication_log_schema": {
+    "description": "Expected format for communication logs",
+    "example": {
+      "timestamp": "2025-10-26T04:15:00Z",
+      "source": "automated",
+      "message_type": "alert",
+      "message_content": "New filtering rules applied",
+      "runner": {
+        "name": "snort-runner-01",
+        "os": "Linux",
+        "architecture": "x86_64"
+      },
+      "snort": {
+        "status": "installed",
+        "version": "Snort 3.1.74.0"
+      },
+      "system": {
+        "uptime": "up 5 days, 3 hours",
+        "load_average": "0.45, 0.38, 0.32"
+      }
+    }
+  },
+  "integration_scripts": {
+    "python_trigger_workflow": {
+      "description": "Python script to trigger workflows",
+      "code": "import requests\nimport json\n\ndef trigger_analysis(owner, repo, token, pcap_file, mode='ips', sensitivity='high'):\n    url = f'https://api.github.com/repos/{owner}/{repo}/dispatches'\n    headers = {\n        'Accept': 'application/vnd.github+json',\n        'Authorization': f'Bearer {token}',\n        'X-GitHub-Api-Version': '2022-11-28'\n    }\n    data = {\n        'event_type': 'analyze_packets',\n        'client_payload': {\n            'pcap_file': pcap_file,\n            'analysis_mode': mode,\n            'sensitivity': sensitivity\n        }\n    }\n    response = requests.post(url, headers=headers, json=data)\n    return response.status_code == 204\n\n# Usage\nif __name__ == '__main__':\n    success = trigger_analysis(\n        owner='YOUR_USERNAME',\n        repo='snortMakeShiftInstall',\n        token='YOUR_PAT',\n        pcap_file='network.pcap',\n        mode='ips',\n        sensitivity='high'\n    )\n    print(f'Workflow triggered: {success}')"
+    },
+    "bash_monitor_script": {
+      "description": "Bash script to monitor and trigger workflows",
+      "code": "#!/bin/bash\n\n# Configuration\nOWNER=\"YOUR_USERNAME\"\nREPO=\"snortMakeShiftInstall\"\nTOKEN=\"YOUR_PAT\"\n\n# Function to trigger IDS/IPS analysis\ntrigger_analysis() {\n    local pcap_file=$1\n    local mode=${2:-ids}\n    local sensitivity=${3:-medium}\n    \n    curl -L -X POST \\\n        -H \"Accept: application/vnd.github+json\" \\\n        -H \"Authorization: Bearer $TOKEN\" \\\n        -H \"X-GitHub-Api-Version: 2022-11-28\" \\\n        https://api.github.com/repos/$OWNER/$REPO/dispatches \\\n        -d \"{\\\"event_type\\\":\\\"analyze_packets\\\",\\\"client_payload\\\":{\\\"pcap_file\\\":\\\"$pcap_file\\\",\\\"analysis_mode\\\":\\\"$mode\\\",\\\"sensitivity\\\":\\\"$sensitivity\\\"}}\"\n}\n\n# Function to send alert\nsend_alert() {\n    local message=$1\n    local severity=${2:-medium}\n    \n    curl -L -X POST \\\n        -H \"Accept: application/vnd.github+json\" \\\n        -H \"Authorization: Bearer $TOKEN\" \\\n        -H \"X-GitHub-Api-Version: 2022-11-28\" \\\n        https://api.github.com/repos/$OWNER/$REPO/dispatches \\\n        -d \"{\\\"event_type\\\":\\\"alert_triggered\\\",\\\"client_payload\\\":{\\\"severity\\\":\\\"$severity\\\",\\\"message\\\":\\\"$message\\\",\\\"source\\\":\\\"monitoring_script\\\"}}\"\n}\n\n# Monitor for new PCAP files and trigger analysis\nmonitor_directory() {\n    local watch_dir=$1\n    \n    inotifywait -m -e create -e moved_to --format '%f' \"$watch_dir\" | while read filename\n    do\n        if [[ $filename == *.pcap ]]; then\n            echo \"New PCAP file detected: $filename\"\n            trigger_analysis \"$watch_dir/$filename\" \"ips\" \"high\"\n            send_alert \"New PCAP file analyzed: $filename\" \"info\"\n        fi\n    done\n}\n\n# Usage example\nif [ \"$1\" == \"monitor\" ]; then\n    monitor_directory \"${2:-/var/log/snort/pcap}\"\nelif [ \"$1\" == \"analyze\" ]; then\n    trigger_analysis \"$2\" \"${3:-ips}\" \"${4:-high}\"\nelif [ \"$1\" == \"alert\" ]; then\n    send_alert \"$2\" \"${3:-medium}\"\nelse\n    echo \"Usage: $0 {monitor|analyze|alert} [args]\"\n    echo \"  monitor [directory]    - Monitor directory for new PCAP files\"\n    echo \"  analyze <file> [mode] [sensitivity] - Analyze a PCAP file\"\n    echo \"  alert <message> [severity] - Send an alert\"\nfi"
+    }
+  }
+}

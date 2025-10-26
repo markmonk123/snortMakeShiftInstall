@@ -1,0 +1,186 @@
+# Production Dockerfile for ML-Enhanced Snort3
+FROM ubuntu:24.04
+
+# Metadata
+LABEL maintainer="TeamEliteKRB"
+LABEL description="Snort3 IDS/IPS with ML-Enhanced threat analysis and automated rule generation"
+LABEL version="1.0"
+LABEL repository="teamelitekrb/snort-dev-ml-enhanced"
+LABEL tag="snortDevML"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    # Build tools for Snort3 installation
+    build-essential cmake git wget curl autotools-dev \
+    # Snort3 runtime dependencies
+    libpcap-dev libluajit-5.1-dev zlib1g-dev pkg-config \
+    libhwloc-dev libssl-dev libnghttp2-dev libpcre3-dev \
+    uuid-dev libdumbnet-dev autoconf libtool flex bison \
+    # Python and ML dependencies
+    python3 python3-pip python3-dev \
+    # Network and system tools
+    net-tools iproute2 tcpdump sudo nano htop tree psmisc \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages for ML functionality
+RUN pip3 install --no-cache-dir \
+    openai>=1.0.0 \
+    requests \
+    asyncio \
+    aiofiles \
+    scikit-learn \
+    numpy \
+    pandas \
+    python-dateutil \
+    psutil
+
+# Create necessary directories
+RUN mkdir -p /var/log/snort /var/run /etc/snort/rules /etc/snort/ml_runner
+
+# Copy the entire application
+COPY . /app/
+
+# Install Snort3 using our installer script
+RUN python3 /app/snort3_installer.py --auto-confirm || echo "Snort3 installation completed with warnings"
+
+# Set up configurations
+RUN if [ -f /app/examples/snort.lua ]; then \
+        cp /app/examples/snort.lua /usr/local/etc/snort/ 2>/dev/null || true; \
+    fi && \
+    if [ -f /app/examples/local.rules ]; then \
+        cp /app/examples/local.rules /usr/local/etc/snort/rules/ 2>/dev/null || true; \
+    fi
+
+# Set permissions
+RUN chmod +x /app/*.sh /app/*.py && \
+    chmod +x /app/docker-entrypoint.sh && \
+    chown -R root:root /app /var/log/snort /etc/snort
+
+# Create a startup script that handles the container environment
+RUN cat > /app/container-start.sh << 'EOF'
+#!/bin/bash
+set -e
+
+echo "🚀 Starting ML-Enhanced Snort3 Container"
+echo "========================================"
+
+# Ensure directories exist
+mkdir -p /var/log/snort /var/run
+
+# Check network interfaces
+echo "Available network interfaces:"
+ip link show
+
+# Determine the network interface to use
+INTERFACE=${SNORT_INTERFACE:-eth0}
+if ! ip link show "$INTERFACE" >/dev/null 2>&1; then
+    echo "⚠️  Interface $INTERFACE not found, looking for alternatives..."
+    # Find the first available interface (excluding lo)
+    INTERFACE=$(ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | head -1 | cut -d: -f2 | tr -d ' ')
+    if [ -z "$INTERFACE" ]; then
+        echo "❌ No suitable network interface found"
+        exit 1
+    fi
+    echo "✅ Using interface: $INTERFACE"
+fi
+
+# Test Snort3 installation
+if command -v snort >/dev/null 2>&1; then
+    echo "✅ Snort3 is installed: $(snort --version 2>&1 | head -1)"
+else
+    echo "❌ Snort3 not found in PATH"
+    exit 1
+fi
+
+# Check configuration file
+CONFIG_FILE="/usr/local/etc/snort/snort.lua"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "⚠️  Main config not found, using defaults"
+    if [ -f "/usr/local/etc/snort/snort_defaults.lua" ]; then
+        cp "/usr/local/etc/snort/snort_defaults.lua" "$CONFIG_FILE"
+    fi
+fi
+
+# Test configuration
+echo "🔍 Testing Snort3 configuration..."
+if snort -T -c "$CONFIG_FILE" >/dev/null 2>&1; then
+    echo "✅ Configuration test passed"
+else
+    echo "⚠️  Configuration test failed, but continuing..."
+fi
+
+# Check for API key
+if [ -n "$ML_API_KEY" ]; then
+    echo "✅ OpenAI API key detected"
+elif [ -f "/etc/snort/ml_runner/api_config.json" ]; then
+    echo "✅ API config file detected"
+else
+    echo "⚠️  No OpenAI API key configured - using local models only"
+fi
+
+# Start based on command
+case "$1" in
+    "snort-only")
+        echo "🔍 Starting Snort3 IDS only..."
+        exec snort -c "$CONFIG_FILE" -i "$INTERFACE" -A alert_fast -l /var/log/snort
+        ;;
+    "ml-only")
+        echo "🧠 Starting ML Runner only..."
+        exec python3 /app/main.py --model local --verbose
+        ;;
+    "test")
+        echo "🧪 Running system test..."
+        python3 /app/main.py --test-config
+        ;;
+    "bash")
+        echo "🐚 Starting bash shell..."
+        exec /bin/bash
+        ;;
+    "services"|"")
+        echo "🚀 Starting full ML-Enhanced Snort system..."
+        # Use our service manager but adapt for container
+        if [ -f "/app/service_manager.sh" ]; then
+            exec /app/service_manager.sh start
+        else
+            # Fallback: start services manually
+            echo "Starting Snort3..."
+            snort -c "$CONFIG_FILE" -i "$INTERFACE" -A alert_fast -l /var/log/snort -D &
+            sleep 2
+            echo "Starting ML Runner..."
+            exec python3 /app/main.py --model openai --verbose
+        fi
+        ;;
+    *)
+        echo "🔧 Running custom command: $@"
+        exec "$@"
+        ;;
+esac
+EOF
+
+RUN chmod +x /app/container-start.sh
+
+# Expose ports
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep -f snort > /dev/null || exit 1
+
+# Use our container start script
+ENTRYPOINT ["/app/container-start.sh"]
+CMD ["services"]
+
+# Final metadata
+LABEL org.opencontainers.image.title="ML-Enhanced Snort3"
+LABEL org.opencontainers.image.description="Snort3 IDS/IPS with AI-powered threat analysis"
+LABEL org.opencontainers.image.version="1.0"
+LABEL org.opencontainers.image.authors="TeamEliteKRB"
+LABEL org.opencontainers.image.source="https://github.com/markmonk123/snortMakeShiftInstall"

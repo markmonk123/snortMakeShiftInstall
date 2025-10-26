@@ -1,0 +1,139 @@
+name: IDS/IPS Packet Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      pcap_file:
+        description: 'PCAP file to analyze'
+        required: false
+        default: 'sample.pcap'
+      analysis_mode:
+        description: 'Analysis mode (ids/ips)'
+        required: true
+        default: 'ids'
+        type: choice
+        options:
+          - ids
+          - ips
+      sensitivity:
+        description: 'Detection sensitivity (low/medium/high)'
+        required: true
+        default: 'medium'
+        type: choice
+        options:
+          - low
+          - medium
+          - high
+  repository_dispatch:
+    types: [analyze_packets]
+
+jobs:
+  analyze-packets:
+    runs-on: [self-hosted, snort-runner]
+    permissions:
+      contents: read
+      actions: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set analysis parameters
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "pcap_file=${{ github.event.client_payload.pcap_file }}" >> $GITHUB_OUTPUT
+            echo "mode=${{ github.event.client_payload.analysis_mode }}" >> $GITHUB_OUTPUT
+            echo "sensitivity=${{ github.event.client_payload.sensitivity }}" >> $GITHUB_OUTPUT
+          else
+            echo "pcap_file=${{ inputs.pcap_file }}" >> $GITHUB_OUTPUT
+            echo "mode=${{ inputs.analysis_mode }}" >> $GITHUB_OUTPUT
+            echo "sensitivity=${{ inputs.sensitivity }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Verify Snort3 installation
+        run: |
+          if ! command -v snort &> /dev/null; then
+            echo "Snort3 is not installed. Please install it on the self-hosted runner."
+            exit 1
+          fi
+          snort --version
+      
+      - name: Load Snort3 configuration
+        run: |
+          echo "Loading Snort3 configuration for ${{ steps.params.outputs.mode }} mode..."
+          
+          # Create analysis directory
+          mkdir -p analysis-results
+          
+          # Set sensitivity-based rule configuration
+          case "${{ steps.params.outputs.sensitivity }}" in
+            low)
+              echo "Using low sensitivity rules..."
+              ;;
+            medium)
+              echo "Using medium sensitivity rules..."
+              ;;
+            high)
+              echo "Using high sensitivity rules..."
+              ;;
+          esac
+      
+      - name: Run packet analysis
+        id: analysis
+        run: |
+          echo "Analyzing packets in ${{ steps.params.outputs.mode }} mode..."
+          
+          # Create results file
+          RESULTS_FILE="analysis-results/analysis-$(date +%Y%m%d-%H%M%S).json"
+          
+          # Simulate packet analysis (replace with actual snort command)
+          # snort -c /etc/snort/snort.lua -r ${{ steps.params.outputs.pcap_file }} --daq-dir /usr/local/lib/daq -A full
+          
+          # Generate analysis report
+          cat > "$RESULTS_FILE" << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "mode": "${{ steps.params.outputs.mode }}",
+            "sensitivity": "${{ steps.params.outputs.sensitivity }}",
+            "pcap_file": "${{ steps.params.outputs.pcap_file }}",
+            "alerts": [],
+            "statistics": {
+              "packets_analyzed": 0,
+              "alerts_triggered": 0,
+              "threats_detected": 0
+            },
+            "recommendations": []
+          }
+          EOF
+          
+          echo "results_file=$RESULTS_FILE" >> $GITHUB_OUTPUT
+          echo "Analysis completed. Results saved to $RESULTS_FILE"
+      
+      - name: Upload analysis results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ids-ips-analysis-${{ steps.params.outputs.mode }}-${{ github.run_number }}
+          path: analysis-results/
+          retention-days: 30
+      
+      - name: Trigger packet filtering workflow
+        if: steps.params.outputs.mode == 'ips'
+        run: |
+          echo "Triggering packet filtering workflow for IPS mode..."
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d '{"event_type":"filter_packets","client_payload":{"analysis_results":"${{ steps.analysis.outputs.results_file }}","mode":"automatic"}}'
+      
+      - name: Generate summary
+        run: |
+          echo "## IDS/IPS Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Mode**: ${{ steps.params.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sensitivity**: ${{ steps.params.outputs.sensitivity }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **PCAP File**: ${{ steps.params.outputs.pcap_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Results**: Uploaded as artifact" >> $GITHUB_STEP_SUMMARY

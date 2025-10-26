@@ -1,0 +1,186 @@
+# Multi-stage Dockerfile for ML-Enhanced Snort3
+FROM ubuntu:24.04 AS builder
+
+# Build environment
+ENV DEBIAN_FRONTEND=noninteractive
+ENV SNORT_VERSION=3.1.75.0
+ENV DAQ_VERSION=3.0.13
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    autotools-dev \
+    libdumbnet-dev \
+    libluajit-5.1-dev \
+    libpcap-dev \
+    zlib1g-dev \
+    pkg-config \
+    libhwloc-dev \
+    autoconf \
+    libtool \
+    flex \
+    bison \
+    libssl-dev \
+    libnghttp2-dev \
+    libpcre3-dev \
+    uuid-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build LibDAQ
+RUN wget https://github.com/snort3/libdaq/archive/refs/tags/v${DAQ_VERSION}.tar.gz && \
+    tar -xzf v${DAQ_VERSION}.tar.gz && \
+    cd libdaq-${DAQ_VERSION} && \
+    ./bootstrap && \
+    ./configure --prefix=/opt/snort && \
+    make -j$(nproc) && \
+    make install
+
+# Build Snort3
+RUN wget https://github.com/snort3/snort3/archive/refs/tags/${SNORT_VERSION}.tar.gz && \
+    tar -xzf ${SNORT_VERSION}.tar.gz && \
+    cd snort3-${SNORT_VERSION} && \
+    export PKG_CONFIG_PATH=/opt/snort/lib/pkgconfig:$PKG_CONFIG_PATH && \
+    ./configure_cmake.sh --prefix=/opt/snort --with-daq-includes=/opt/snort/include --with-daq-libraries=/opt/snort/lib && \
+    cd build && \
+    make -j$(nproc) && \
+    make install
+
+#####################################
+# Final runtime image
+FROM ubuntu:24.04
+
+# Metadata
+LABEL maintainer="TeamEliteKRB"
+LABEL description="Snort3 IDS/IPS with ML-Enhanced threat analysis"
+LABEL version="1.0"
+LABEL repository="teamelitekrb/snort-dev-ml-enhanced"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV LD_LIBRARY_PATH=/opt/snort/lib:/usr/local/lib
+ENV PATH=/opt/snort/bin:$PATH
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    # Runtime libraries
+    libpcap0.8 \
+    libluajit-5.1-2 \
+    libhwloc15 \
+    libssl3 \
+    libnghttp2-14 \
+    libpcre3 \
+    libuuid1 \
+    libdumbnet1 \
+    # Python and tools
+    python3 \
+    python3-pip \
+    # Network utilities
+    net-tools \
+    iproute2 \
+    tcpdump \
+    # System utilities
+    sudo \
+    nano \
+    htop \
+    tree \
+    psmisc \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Snort3 installation from builder
+COPY --from=builder /opt/snort /opt/snort
+
+# Install Python packages (minimal set for smaller image)
+RUN pip3 install --no-cache-dir \
+    openai \
+    requests \
+    asyncio \
+    aiofiles \
+    scikit-learn \
+    numpy \
+    python-dateutil
+
+# Create necessary directories
+RUN mkdir -p \
+    /var/log/snort \
+    /var/run \
+    /etc/snort/rules \
+    /etc/snort/ml_runner \
+    /opt/snort/etc/snort/rules
+
+# Copy application files
+COPY . /app/
+
+# Copy Snort configuration files
+RUN if [ -f /app/examples/snort.lua ]; then \
+        cp /app/examples/snort.lua /opt/snort/etc/snort/; \
+    fi && \
+    if [ -f /app/examples/local.rules ]; then \
+        cp /app/examples/local.rules /opt/snort/etc/snort/rules/; \
+    fi
+
+# Set up default Snort configuration
+RUN if [ ! -f /opt/snort/etc/snort/snort.lua ]; then \
+        if [ -f /opt/snort/etc/snort/snort_defaults.lua ]; then \
+            cp /opt/snort/etc/snort/snort_defaults.lua /opt/snort/etc/snort/snort.lua; \
+        else \
+            echo "Building basic snort.lua config..."; \
+            cat > /opt/snort/etc/snort/snort.lua << 'EOF'
+-- Snort3 basic configuration
+HOME_NET = 'any'
+EXTERNAL_NET = '!$HOME_NET'
+
+include 'snort_defaults.lua'
+
+ips = {
+    variables = default_variables,
+}
+
+detection = {}
+output = {
+    { alert_fast = { file = true } }
+}
+references = default_references
+classifications = default_classifications
+daq = {
+    inputs = { 'eth0' },
+    snaplen = 1518,
+}
+EOF
+        fi; \
+    fi
+
+# Set proper permissions
+RUN chmod +x /app/*.sh && \
+    chmod +x /app/*.py && \
+    chmod +x /app/docker-entrypoint.sh && \
+    chown -R root:root /app && \
+    chown -R root:root /var/log/snort && \
+    chown -R root:root /etc/snort && \
+    chmod 755 /var/log/snort && \
+    chmod 755 /etc/snort
+
+# Test Snort installation
+RUN snort --version || echo "Snort installation needs configuration"
+
+# Expose ports (optional)
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep -f snort > /dev/null || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
+# Default command
+CMD ["services"]

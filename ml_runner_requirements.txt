@@ -1,0 +1,20 @@
+# ML-Enhanced Snort Runner Dependencies
+
+# Required for async operations and HTTP requests
+aiohttp>=3.8.0
+
+# OpenAI API integration (optional)
+openai>=1.0.0
+
+# Data processing and JSON handling (built-in with Python)
+# datetime, json, asyncio, logging, subprocess, re, pathlib, os, sys, signal
+
+# Development and testing dependencies (optional)
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=22.0.0
+flake8>=5.0.0
+
+# Note: Most dependencies are part of Python standard library
+# Only install external dependencies if needed:
+# pip install aiohttp openai
