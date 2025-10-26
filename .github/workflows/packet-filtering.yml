@@ -123,8 +123,10 @@ jobs:
             [ -z "$PORT" ] && PORT="any"
             
             if [ "$PROTOCOL" == "all" ]; then
+              SID_BASE=1000001
               for proto in tcp udp icmp; do
-                echo "$RULE_ACTION $proto $SRC_IP any -> $DST_IP $PORT (msg:\"Custom filter rule - $proto\"; sid:1000001; rev:1;)" >> "$RULES_FILE"
+                echo "$RULE_ACTION $proto $SRC_IP any -> $DST_IP $PORT (msg:\"Custom filter rule - $proto\"; sid:$SID_BASE; rev:1;)" >> "$RULES_FILE"
+                SID_BASE=$((SID_BASE + 1))
               done
             else
               echo "$RULE_ACTION $PROTOCOL $SRC_IP any -> $DST_IP $PORT (msg:\"Custom filter rule - $PROTOCOL\"; sid:1000001; rev:1;)" >> "$RULES_FILE"

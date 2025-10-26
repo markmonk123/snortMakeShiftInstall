@@ -27,7 +27,7 @@ snort = {
 -- IPS mode configuration
 ips = {
     -- Enable inline mode for IPS
-    mode = inline,
+    mode = 'inline',
     
     -- Variables
     variables = {
@@ -127,7 +127,8 @@ file_id = {
 
 -- Include rule files
 ips.include = RULE_PATH .. '/local.rules'
-ips.include = RULE_PATH .. '/snort3-community.rules'
+-- Note: To include multiple rule files, add them separately or use:
+-- ips = { include = { RULE_PATH .. '/local.rules', RULE_PATH .. '/snort3-community.rules' } }
 
 -- Performance monitoring
 perf_monitor = {
