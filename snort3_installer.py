@@ -332,7 +332,7 @@ normalizer = {{
 
 active = {{
     attempts = 2,
-    device = '{self.offload_adapter or "eth1"}'
+    device = '{self.offload_adapter or 'eth1'}'
 }}
 
 ---------------------------------------------------------------------------
@@ -376,7 +376,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart={self.install_dir}/bin/snort -c {self.config_dir}/snort.lua -i {self.incoming_adapter or 'eth0'} -A alert_fast -l /var/log/snort -D
+ExecStart={self.install_dir}/bin/snort -c {self.config_dir}/snort.lua -i {self.incoming_adapter or 'eth0'} -A alert_fast -l /var/log/snort
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10

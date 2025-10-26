@@ -81,7 +81,11 @@ if [ -d "/var/log/snort" ]; then
     echo -e "${GREEN}Log directory exists${NC}"
     ((PASSED++))
     echo "Log files:"
-    ls -lh /var/log/snort/ 2>/dev/null | tail -n +2 | awk '{print "  " $9 " (" $5 ")"}'
+    if [ "$(ls -A /var/log/snort 2>/dev/null)" ]; then
+        ls -lh /var/log/snort/ 2>/dev/null | tail -n +2 | awk '{if ($9 != "") print "  " $9 " (" $5 ")"}'
+    else
+        echo "  (no log files yet)"
+    fi
 else
     echo -e "${RED}Log directory missing${NC}"
     ((FAILED++))
