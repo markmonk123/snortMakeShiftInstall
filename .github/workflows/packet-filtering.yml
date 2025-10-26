@@ -132,7 +132,7 @@ jobs:
                 SID_BASE=$((SID_BASE + 1))
               done
             else
-              echo "$RULE_ACTION $PROTOCOL $SRC_IP any -> $DST_IP $PORT (msg:\"Custom filter rule - $PROTOCOL\"; sid:1000001; rev:1;)" >> "$RULES_FILE"
+              echo "$RULE_ACTION $PROTOCOL $SRC_IP any -> $DST_IP $PORT (msg:\"Custom filter rule - $PROTOCOL\"; sid:1000010; rev:1;)" >> "$RULES_FILE"
             fi
           fi
           
