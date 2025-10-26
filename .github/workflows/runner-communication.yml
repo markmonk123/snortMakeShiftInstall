@@ -1,0 +1,215 @@
+name: Runner Communication Hub
+
+on:
+  workflow_dispatch:
+    inputs:
+      message_type:
+        description: 'Type of message to broadcast'
+        required: true
+        default: 'status'
+        type: choice
+        options:
+          - status
+          - alert
+          - update
+          - sync
+      message_content:
+        description: 'Message content'
+        required: false
+        default: ''
+  repository_dispatch:
+    types: [rules_updated, system_status, alert_triggered]
+  schedule:
+    # Run status check every hour
+    - cron: '0 * * * *'
+
+jobs:
+  communication-hub:
+    runs-on: [self-hosted, snort-runner]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Determine message source
+        id: source
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "source=manual" >> $GITHUB_OUTPUT
+            echo "type=${{ inputs.message_type }}" >> $GITHUB_OUTPUT
+            echo "content=${{ inputs.message_content }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "source=automated" >> $GITHUB_OUTPUT
+            echo "type=${{ github.event.action }}" >> $GITHUB_OUTPUT
+            
+            # Parse client payload
+            if [ "${{ github.event.action }}" == "rules_updated" ]; then
+              echo "content=Rules updated: ${{ github.event.client_payload.rules_file }}" >> $GITHUB_OUTPUT
+            else
+              echo "content=System event triggered" >> $GITHUB_OUTPUT
+            fi
+          elif [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "source=scheduled" >> $GITHUB_OUTPUT
+            echo "type=status" >> $GITHUB_OUTPUT
+            echo "content=Scheduled status check" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Collect system status
+        id: status
+        run: |
+          echo "Collecting system status from self-hosted runner..."
+          
+          # Create status report directory
+          mkdir -p communication-logs
+          STATUS_FILE="communication-logs/status-$(date +%Y%m%d-%H%M%S).json"
+          
+          # Check Snort3 status
+          SNORT_STATUS="unknown"
+          if command -v snort &> /dev/null; then
+            SNORT_STATUS="installed"
+            SNORT_VERSION=$(snort --version 2>&1 | head -1 || echo "unknown")
+          else
+            SNORT_STATUS="not_installed"
+            SNORT_VERSION="N/A"
+          fi
+          
+          # Collect runner info
+          RUNNER_NAME="${RUNNER_NAME:-unknown}"
+          RUNNER_OS="${RUNNER_OS:-unknown}"
+          
+          # Generate status report
+          cat > "$STATUS_FILE" << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "source": "${{ steps.source.outputs.source }}",
+            "message_type": "${{ steps.source.outputs.type }}",
+            "message_content": "${{ steps.source.outputs.content }}",
+            "runner": {
+              "name": "$RUNNER_NAME",
+              "os": "$RUNNER_OS",
+              "architecture": "$(uname -m)"
+            },
+            "snort": {
+              "status": "$SNORT_STATUS",
+              "version": "$SNORT_VERSION"
+            },
+            "system": {
+              "uptime": "$(uptime -p || echo 'unknown')",
+              "load_average": "$(uptime | awk -F'load average:' '{print $2}' | xargs || echo 'unknown')"
+            }
+          }
+          EOF
+          
+          echo "status_file=$STATUS_FILE" >> $GITHUB_OUTPUT
+          echo "snort_status=$SNORT_STATUS" >> $GITHUB_OUTPUT
+          
+          echo "System status collected:"
+          cat "$STATUS_FILE"
+      
+      - name: Check for pending communications
+        run: |
+          echo "Checking for pending communications from other workflows..."
+          
+          # Check for recent workflow runs
+          echo "Recent IDS/IPS Analysis runs:"
+          # In production, query GitHub API for recent workflow runs
+          
+          echo "Recent Packet Filtering runs:"
+          # In production, query GitHub API for recent workflow runs
+      
+      - name: Broadcast status to monitoring
+        if: steps.source.outputs.type == 'status' || steps.source.outputs.type == 'alert'
+        run: |
+          echo "Broadcasting ${{ steps.source.outputs.type }} message..."
+          
+          # Create broadcast log
+          BROADCAST_FILE="communication-logs/broadcast-$(date +%Y%m%d-%H%M%S).log"
+          
+          cat > "$BROADCAST_FILE" << EOF
+          Broadcast Details:
+          ==================
+          Type: ${{ steps.source.outputs.type }}
+          Source: ${{ steps.source.outputs.source }}
+          Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Content: ${{ steps.source.outputs.content }}
+          
+          System Status:
+          ==============
+          Snort Status: ${{ steps.status.outputs.snort_status }}
+          Runner: ${RUNNER_NAME:-unknown}
+          
+          This message has been logged and is available for monitoring systems.
+          EOF
+          
+          cat "$BROADCAST_FILE"
+      
+      - name: Sync configuration across runners
+        if: steps.source.outputs.type == 'sync' || steps.source.outputs.type == 'update'
+        run: |
+          echo "Syncing configuration across runners..."
+          
+          # Create sync manifest
+          SYNC_FILE="communication-logs/sync-$(date +%Y%m%d-%H%M%S).json"
+          
+          cat > "$SYNC_FILE" << EOF
+          {
+            "sync_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "sync_type": "${{ steps.source.outputs.type }}",
+            "artifacts_to_sync": [
+              "latest_rules",
+              "analysis_results",
+              "configuration_files"
+            ],
+            "target_runners": ["self-hosted"],
+            "status": "initiated"
+          }
+          EOF
+          
+          echo "Configuration sync manifest created"
+          cat "$SYNC_FILE"
+      
+      - name: Handle alerts
+        if: steps.source.outputs.type == 'alert' || github.event.action == 'alert_triggered'
+        run: |
+          echo "🚨 ALERT: Processing security alert..."
+          
+          # Create alert log
+          ALERT_FILE="communication-logs/alert-$(date +%Y%m%d-%H%M%S).json"
+          
+          cat > "$ALERT_FILE" << EOF
+          {
+            "alert_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "severity": "high",
+            "source": "${{ steps.source.outputs.source }}",
+            "message": "${{ steps.source.outputs.content }}",
+            "action_taken": "logged",
+            "requires_attention": true
+          }
+          EOF
+          
+          echo "Alert logged and ready for review"
+          cat "$ALERT_FILE"
+      
+      - name: Upload communication logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: communication-logs-${{ github.run_number }}
+          path: communication-logs/
+          retention-days: 30
+      
+      - name: Generate communication summary
+        run: |
+          echo "## Runner Communication Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: ${{ steps.source.outputs.source }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Message Type**: ${{ steps.source.outputs.type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Snort Status**: ${{ steps.status.outputs.snort_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Message Content" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.source.outputs.content }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status Report" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat ${{ steps.status.outputs.status_file }} >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

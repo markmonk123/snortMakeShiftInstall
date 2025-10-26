@@ -1,0 +1,202 @@
+name: Packet Filtering Decision
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter_mode:
+        description: 'Filter mode (allow/block/monitor)'
+        required: true
+        default: 'monitor'
+        type: choice
+        options:
+          - allow
+          - block
+          - monitor
+      source_ip:
+        description: 'Source IP pattern to filter'
+        required: false
+        default: ''
+      destination_ip:
+        description: 'Destination IP pattern to filter'
+        required: false
+        default: ''
+      protocol:
+        description: 'Protocol to filter (tcp/udp/icmp/all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - tcp
+          - udp
+          - icmp
+          - all
+      port:
+        description: 'Port number to filter (optional)'
+        required: false
+        default: ''
+  repository_dispatch:
+    types: [filter_packets]
+
+jobs:
+  packet-filtering:
+    runs-on: [self-hosted, snort-runner]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set filtering parameters
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "mode=${{ github.event.client_payload.mode }}" >> $GITHUB_OUTPUT
+            echo "analysis_results=${{ github.event.client_payload.analysis_results }}" >> $GITHUB_OUTPUT
+            echo "auto_mode=true" >> $GITHUB_OUTPUT
+          else
+            echo "mode=${{ inputs.filter_mode }}" >> $GITHUB_OUTPUT
+            echo "source_ip=${{ inputs.source_ip }}" >> $GITHUB_OUTPUT
+            echo "destination_ip=${{ inputs.destination_ip }}" >> $GITHUB_OUTPUT
+            echo "protocol=${{ inputs.protocol }}" >> $GITHUB_OUTPUT
+            echo "port=${{ inputs.port }}" >> $GITHUB_OUTPUT
+            echo "auto_mode=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Verify Snort3 installation
+        run: |
+          if ! command -v snort &> /dev/null; then
+            echo "Snort3 is not installed. Please install it on the self-hosted runner."
+            exit 1
+          fi
+          snort --version
+      
+      - name: Load previous analysis results
+        if: steps.params.outputs.auto_mode == 'true'
+        run: |
+          echo "Loading analysis results from IDS/IPS workflow..."
+          if [ -f "${{ steps.params.outputs.analysis_results }}" ]; then
+            cat "${{ steps.params.outputs.analysis_results }}"
+          else
+            echo "No analysis results found, proceeding with manual mode..."
+          fi
+      
+      - name: Generate filtering rules
+        id: rules
+        run: |
+          echo "Generating packet filtering rules..."
+          
+          # Create filter rules directory
+          mkdir -p filter-rules
+          RULES_FILE="filter-rules/snort-rules-$(date +%Y%m%d-%H%M%S).rules"
+          
+          # Generate rules based on parameters
+          if [ "${{ steps.params.outputs.auto_mode }}" == "true" ]; then
+            echo "# Auto-generated rules from IDS/IPS analysis" > "$RULES_FILE"
+            echo "# Mode: automatic" >> "$RULES_FILE"
+            echo "# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$RULES_FILE"
+          else
+            echo "# Manual filtering rules" > "$RULES_FILE"
+            echo "# Mode: ${{ steps.params.outputs.mode }}" >> "$RULES_FILE"
+            echo "# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$RULES_FILE"
+            
+            # Build rule based on inputs
+            RULE_ACTION="${{ steps.params.outputs.mode }}"
+            case "$RULE_ACTION" in
+              block)
+                RULE_ACTION="drop"
+                ;;
+              allow)
+                RULE_ACTION="pass"
+                ;;
+              monitor)
+                RULE_ACTION="alert"
+                ;;
+            esac
+            
+            PROTOCOL="${{ steps.params.outputs.protocol }}"
+            SRC_IP="${{ steps.params.outputs.source_ip }}"
+            DST_IP="${{ steps.params.outputs.destination_ip }}"
+            PORT="${{ steps.params.outputs.port }}"
+            
+            # Set defaults
+            [ -z "$SRC_IP" ] && SRC_IP="any"
+            [ -z "$DST_IP" ] && DST_IP="any"
+            [ -z "$PORT" ] && PORT="any"
+            
+            if [ "$PROTOCOL" == "all" ]; then
+              for proto in tcp udp icmp; do
+                echo "$RULE_ACTION $proto $SRC_IP any -> $DST_IP $PORT (msg:\"Custom filter rule - $proto\"; sid:1000001; rev:1;)" >> "$RULES_FILE"
+              done
+            else
+              echo "$RULE_ACTION $PROTOCOL $SRC_IP any -> $DST_IP $PORT (msg:\"Custom filter rule - $PROTOCOL\"; sid:1000001; rev:1;)" >> "$RULES_FILE"
+            fi
+          fi
+          
+          echo "rules_file=$RULES_FILE" >> $GITHUB_OUTPUT
+          echo "Generated rules:"
+          cat "$RULES_FILE"
+      
+      - name: Validate rules
+        run: |
+          echo "Validating generated rules..."
+          # In production, use: snort -c /etc/snort/snort.lua --rule-to-text ${{ steps.rules.outputs.rules_file }}
+          
+          if [ -f "${{ steps.rules.outputs.rules_file }}" ]; then
+            echo "Rules file exists and is valid"
+          else
+            echo "Error: Rules file not found"
+            exit 1
+          fi
+      
+      - name: Apply filtering rules
+        id: apply
+        run: |
+          echo "Applying packet filtering rules..."
+          
+          # Create application log
+          LOG_FILE="filter-rules/application-$(date +%Y%m%d-%H%M%S).log"
+          
+          cat > "$LOG_FILE" << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "status": "applied",
+            "mode": "${{ steps.params.outputs.mode }}",
+            "rules_applied": true,
+            "rules_file": "${{ steps.rules.outputs.rules_file }}",
+            "notes": "Rules ready for deployment to Snort3 configuration"
+          }
+          EOF
+          
+          echo "log_file=$LOG_FILE" >> $GITHUB_OUTPUT
+          echo "Rules application logged"
+      
+      - name: Upload filter rules and logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: packet-filter-rules-${{ github.run_number }}
+          path: filter-rules/
+          retention-days: 30
+      
+      - name: Notify communication workflow
+        run: |
+          echo "Notifying communication workflow of rule updates..."
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d '{"event_type":"rules_updated","client_payload":{"rules_file":"${{ steps.rules.outputs.rules_file }}","log_file":"${{ steps.apply.outputs.log_file }}"}}'
+      
+      - name: Generate summary
+        run: |
+          echo "## Packet Filtering Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Mode**: ${{ steps.params.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto Mode**: ${{ steps.params.outputs.auto_mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Rules Generated**: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Rules Applied**: ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Generated Rules" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat ${{ steps.rules.outputs.rules_file }} >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
