@@ -1,0 +1,112 @@
+# Snort3 Local Rules Example
+# These rules are examples that work with the GitHub Actions workflows
+# Place this file in /etc/snort/rules/local.rules
+
+# ========================================
+# Basic Rules Examples
+# ========================================
+
+# Alert on ICMP ping
+alert icmp any any -> $HOME_NET any (msg:"ICMP Ping detected"; sid:1000001; rev:1;)
+
+# Monitor SSH traffic for suspicious activity
+alert tcp any any -> $HOME_NET 22 (msg:"Suspicious SSH traffic detected"; flow:to_server,established; content:"SSH-"; depth:4; sid:1000002; rev:1;)
+
+# Monitor HTTP traffic to specific hosts
+alert tcp any any -> $HOME_NET 80 (msg:"HTTP traffic to monitored host"; flow:to_server,established; content:"GET"; depth:3; sid:1000003; rev:1;)
+
+# ========================================
+# Port Scanning Detection
+# ========================================
+
+# Detect SYN scan
+alert tcp any any -> $HOME_NET any (msg:"Possible SYN scan detected"; flags:S; threshold:type threshold, track by_src, count 20, seconds 60; sid:1000010; rev:1;)
+
+# Detect NULL scan
+alert tcp any any -> $HOME_NET any (msg:"Possible NULL scan detected"; flags:0; threshold:type threshold, track by_src, count 10, seconds 60; sid:1000011; rev:1;)
+
+# Detect XMAS scan
+alert tcp any any -> $HOME_NET any (msg:"Possible XMAS scan detected"; flags:FPU; threshold:type threshold, track by_src, count 10, seconds 60; sid:1000012; rev:1;)
+
+# ========================================
+# Common Attack Patterns
+# ========================================
+
+# SQL Injection attempts
+alert tcp any any -> $HOME_NET 80 (msg:"Possible SQL injection attempt"; flow:to_server,established; content:"union"; nocase; content:"select"; nocase; distance:0; sid:1000020; rev:1;)
+
+# XSS attempts
+alert tcp any any -> $HOME_NET 80 (msg:"Possible XSS attempt"; flow:to_server,established; content:"<script>"; nocase; sid:1000021; rev:1;)
+
+# Directory traversal
+alert tcp any any -> $HOME_NET 80 (msg:"Possible directory traversal attempt"; flow:to_server,established; content:"../"; sid:1000022; rev:1;)
+
+# Command injection
+alert tcp any any -> $HOME_NET 80 (msg:"Possible command injection"; flow:to_server,established; pcre:"/;.*?(cat|ls|id|whoami|pwd)/i"; sid:1000023; rev:1;)
+
+# ========================================
+# Protocol Specific Rules
+# ========================================
+
+# DNS tunneling detection
+alert udp any any -> any 53 (msg:"Possible DNS tunneling"; content:"|00 01 00 00 00 00 00|"; depth:13; dsize:>128; sid:1000030; rev:1;)
+
+# FTP authentication failures
+alert tcp any any -> $HOME_NET 21 (msg:"Multiple FTP authentication failures"; flow:to_server,established; content:"530"; depth:3; threshold:type threshold, track by_src, count 5, seconds 60; sid:1000031; rev:1;)
+
+# SMTP spam detection
+alert tcp any any -> $HOME_NET 25 (msg:"Possible SMTP spam"; flow:to_server,established; content:"RCPT TO"; nocase; threshold:type threshold, track by_src, count 50, seconds 60; sid:1000032; rev:1;)
+
+# ========================================
+# Malware and Exploit Detection
+# ========================================
+
+# Detect reverse shell attempts
+alert tcp $HOME_NET any -> any any (msg:"Possible reverse shell connection"; flow:to_server,established; content:"/bin/sh"; sid:1000040; rev:1;)
+
+# Detect file downloads from suspicious sources
+alert tcp any any -> $HOME_NET any (msg:"Suspicious file download"; flow:to_server,established; content:".exe"; sid:1000041; rev:1;)
+
+# WannaCry ransomware detection
+alert tcp any any -> $HOME_NET 445 (msg:"Possible WannaCry ransomware activity"; flow:to_server,established; content:"|ff|SMB"; depth:8; sid:1000042; rev:1;)
+
+# ========================================
+# Data Exfiltration Detection
+# ========================================
+
+# Large outbound data transfer
+alert tcp $HOME_NET any -> any any (msg:"Large data transfer detected"; flow:to_client,established; dsize:>10000; threshold:type threshold, track by_src, count 10, seconds 60; sid:1000050; rev:1;)
+
+# Unusual outbound DNS requests
+alert udp $HOME_NET any -> any 53 (msg:"High volume of DNS requests"; threshold:type threshold, track by_src, count 100, seconds 60; sid:1000051; rev:1;)
+
+# ========================================
+# Brute Force Detection
+# ========================================
+
+# SSH brute force
+alert tcp any any -> $HOME_NET 22 (msg:"Possible SSH brute force"; flow:to_server,established; threshold:type threshold, track by_src, count 5, seconds 60; sid:1000060; rev:1;)
+
+# RDP brute force
+alert tcp any any -> $HOME_NET 3389 (msg:"Possible RDP brute force"; flow:to_server,established; threshold:type threshold, track by_src, count 5, seconds 60; sid:1000061; rev:1;)
+
+# Web application brute force
+alert tcp any any -> $HOME_NET 80 (msg:"Possible web login brute force"; flow:to_server,established; content:"POST"; depth:4; content:"password"; nocase; threshold:type threshold, track by_src, count 10, seconds 60; sid:1000062; rev:1;)
+
+# ========================================
+# Custom Rules for Workflow Integration
+# ========================================
+
+# Rules generated by GitHub Actions Packet Filtering workflow will be added here
+# These rules are dynamically created based on IDS/IPS analysis results
+
+# Example workflow-generated rule format:
+# alert tcp any any -> any any (msg:"Workflow generated rule"; sid:1000100; rev:1;)
+
+# ========================================
+# Testing Rules
+# ========================================
+
+# Test rule - alerts on any ICMP traffic (for testing)
+# Uncomment for testing purposes
+# alert icmp any any -> any any (msg:"ICMP traffic detected (test rule)"; sid:1000999; rev:1;)
