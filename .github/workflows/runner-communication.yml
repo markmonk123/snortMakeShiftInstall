@@ -97,7 +97,11 @@ jobs:
               "version": "$SNORT_VERSION"
             },
             "system": {
-              "uptime": "$(uptime -p || echo 'unknown')",
+              "uptime": "$(
+                (uptime -p 2>/dev/null) || \
+                (uptime | sed -E 's/^.* up ([^,]+),.*$/\1/' 2>/dev/null) || \
+                echo 'unknown'
+              )",
               "load_average": "$(uptime | awk -F'load average:' '{print $2}' | xargs || echo 'unknown')"
             }
           }
