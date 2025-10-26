@@ -40,6 +40,9 @@ on:
 jobs:
   packet-filtering:
     runs-on: [self-hosted, snort-runner]
+    permissions:
+      contents: read
+      actions: write
     
     steps:
       - name: Checkout repository
