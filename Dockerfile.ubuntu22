@@ -1,0 +1,118 @@
+# ML-Enhanced Snort3 - Ubuntu 22.04 LTS (Stable)
+FROM ubuntu:22.04
+
+# Metadata
+LABEL maintainer="TeamEliteKRB"
+LABEL description="Snort3 IDS/IPS with ML-Enhanced threat analysis - Ubuntu 22.04"
+LABEL version="1.0"
+LABEL repository="teamelitekrb/snort-dev-ml-enhanced"
+LABEL tag="snortDevML"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV SNORT_VERSION=3.1.75.0
+ENV DAQ_VERSION=3.0.13
+
+WORKDIR /app
+
+# Install system dependencies (Ubuntu 22.04 compatible)
+RUN apt-get update && apt-get install -y \
+    # Build essentials
+    build-essential cmake git wget curl \
+    # Snort3 dependencies
+    autotools-dev libdumbnet-dev libluajit-5.1-dev \
+    libpcap-dev zlib1g-dev pkg-config libhwloc-dev \
+    autoconf libtool flex bison \
+    # Network libraries  
+    libssl-dev libnghttp2-dev libpcre3-dev uuid-dev \
+    # Python 3.9 (default in 22.04)
+    python3 python3-pip python3-dev python3-venv \
+    # System tools
+    net-tools tcpdump iproute2 sudo nano htop tree psmisc \
+    # Additional Snort dependencies
+    libdaq-dev libdnet-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create Python virtual environment (best practice)
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip in virtual environment
+RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel
+
+# Install Python packages (no restrictions in venv)
+RUN /opt/venv/bin/pip install --no-cache-dir \
+    openai>=1.0.0 \
+    requests>=2.28.0 \
+    aiofiles>=22.1.0 \
+    scikit-learn>=1.1.0 \
+    numpy>=1.21.0 \
+    pandas>=1.4.0 \
+    python-dateutil>=2.8.0 \
+    psutil>=5.9.0
+
+# Create directories
+RUN mkdir -p /var/log/snort /var/run /etc/snort/rules /etc/snort/ml_runner
+
+# Download and build LibDAQ
+RUN cd /tmp && \
+    wget https://github.com/snort3/libdaq/archive/refs/tags/v${DAQ_VERSION}.tar.gz && \
+    tar -xzf v${DAQ_VERSION}.tar.gz && \
+    cd libdaq-${DAQ_VERSION} && \
+    ./bootstrap && \
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/libdaq-*
+
+# Download and build Snort3
+RUN cd /tmp && \
+    wget https://github.com/snort3/snort3/archive/refs/tags/${SNORT_VERSION}.tar.gz && \
+    tar -xzf ${SNORT_VERSION}.tar.gz && \
+    cd snort3-${SNORT_VERSION} && \
+    ./configure_cmake.sh --prefix=/usr/local && \
+    cd build && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/snort3-*
+
+# Copy application files
+COPY . /app/
+
+# Set up Snort configuration
+RUN if [ -f /app/examples/snort.lua ]; then \
+        cp /app/examples/snort.lua /usr/local/etc/snort/ 2>/dev/null || true; \
+    fi && \
+    if [ -f /app/examples/local.rules ]; then \
+        cp /app/examples/local.rules /usr/local/etc/snort/rules/ 2>/dev/null || true; \
+    fi
+
+# Create default config if needed
+RUN if [ ! -f /usr/local/etc/snort/snort.lua ]; then \
+        if [ -f /usr/local/etc/snort/snort_defaults.lua ]; then \
+            cp /usr/local/etc/snort/snort_defaults.lua /usr/local/etc/snort/snort.lua; \
+        fi; \
+    fi
+
+# Set permissions
+RUN chmod +x /app/*.sh /app/*.py && \
+    chmod +x /app/docker-entrypoint.sh && \
+    chown -R root:root /app /var/log/snort /etc/snort
+
+# Test Snort installation
+RUN snort --version || echo "Snort installation check completed"
+
+# Expose ports
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep -f snort > /dev/null || exit 1
+
+# Set entrypoint
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["services"]

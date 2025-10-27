@@ -1,0 +1,99 @@
+# ML-Enhanced Snort3 - Python 3.9 Environment
+FROM python:3.9-slim-bullseye
+
+# Metadata
+LABEL maintainer="TeamEliteKRB"
+LABEL description="Snort3 IDS/IPS with ML-Enhanced threat analysis - Python 3.9"
+LABEL version="1.0"
+
+# Environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV SNORT_VERSION=3.1.75.0
+ENV DAQ_VERSION=3.0.13
+
+WORKDIR /app
+
+# Install system dependencies for Debian Bullseye
+RUN apt-get update && apt-get install -y \
+    # Build tools
+    build-essential cmake git wget curl \
+    # Snort3 build dependencies
+    autotools-dev libdumbnet-dev libluajit-5.1-dev \
+    libpcap-dev zlib1g-dev pkg-config libhwloc-dev \
+    autoconf libtool flex bison \
+    # Network and crypto libraries
+    libssl-dev libnghttp2-dev libpcre3-dev uuid-dev \
+    # System utilities
+    net-tools tcpdump iproute2 sudo nano htop tree psmisc \
+    # Additional libraries
+    libdnet-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Python is already installed (3.9), just upgrade pip
+RUN pip install --upgrade pip setuptools wheel
+
+# Install Python ML packages (Python 3.9 compatible versions)
+RUN pip install --no-cache-dir \
+    openai==1.3.7 \
+    requests==2.31.0 \
+    aiofiles==23.2.1 \
+    scikit-learn==1.3.2 \
+    numpy==1.24.4 \
+    pandas==2.0.3 \
+    python-dateutil==2.8.2 \
+    psutil==5.9.6
+
+# Create directories
+RUN mkdir -p /var/log/snort /var/run /etc/snort/rules /etc/snort/ml_runner
+
+# Download and build LibDAQ
+RUN cd /tmp && \
+    wget https://github.com/snort3/libdaq/archive/refs/tags/v${DAQ_VERSION}.tar.gz && \
+    tar -xzf v${DAQ_VERSION}.tar.gz && \
+    cd libdaq-${DAQ_VERSION} && \
+    ./bootstrap && \
+    ./configure --prefix=/usr/local && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/libdaq-*
+
+# Download and build Snort3
+RUN cd /tmp && \
+    wget https://github.com/snort3/snort3/archive/refs/tags/${SNORT_VERSION}.tar.gz && \
+    tar -xzf ${SNORT_VERSION}.tar.gz && \
+    cd snort3-${SNORT_VERSION} && \
+    ./configure_cmake.sh --prefix=/usr/local && \
+    cd build && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/snort3-*
+
+# Copy application
+COPY . /app/
+
+# Set up configurations
+RUN if [ -f /app/examples/snort.lua ]; then \
+        cp /app/examples/snort.lua /usr/local/etc/snort/; \
+    fi && \
+    if [ -f /app/examples/local.rules ]; then \
+        cp /app/examples/local.rules /usr/local/etc/snort/rules/; \
+    fi
+
+# Set permissions
+RUN chmod +x /app/*.sh /app/*.py && \
+    chmod +x /app/docker-entrypoint.sh && \
+    chown -R root:root /app
+
+# Verify installation
+RUN python --version && snort --version
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep -f snort > /dev/null || exit 1
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["services"]

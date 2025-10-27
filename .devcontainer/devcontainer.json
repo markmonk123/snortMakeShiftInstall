@@ -1,0 +1,73 @@
+{
+    "name": "ML-Enhanced Snort3 Development",
+    "dockerFile": "../Dockerfile.ubuntu22",
+    "context": "..",
+    
+    // Configure container environment
+    "containerEnv": {
+        "PYTHONPATH": "/workspaces/snortMakeShiftInstall",
+        "PYTHONUNBUFFERED": "1"
+    },
+    
+    // Port forwarding for web interfaces
+    "forwardPorts": [8080, 9090],
+    
+    // Post-create command to set up development environment
+    "postCreateCommand": [
+        "bash",
+        "-c",
+        "echo 'Setting up ML-Enhanced Snort development environment...' && pip install --upgrade pip && python3 /workspaces/snortMakeShiftInstall/main.py --test-config"
+    ],
+    
+    // Mount the workspace
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/snortMakeShiftInstall,type=bind,consistency=cached",
+    "workspaceFolder": "/workspaces/snortMakeShiftInstall",
+    
+    // Run arguments for privileged access (needed for packet capture)
+    "runArgs": [
+        "--privileged",
+        "--network=host",
+        "--cap-add=NET_RAW",
+        "--cap-add=NET_ADMIN"
+    ],
+    
+    // Development features
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {},
+        "ghcr.io/devcontainers/features/github-cli:1": {},
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    },
+    
+    // VS Code extensions for development
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.flake8",
+                "ms-python.black-formatter",
+                "ms-vscode.makefile-tools",
+                "redhat.vscode-yaml",
+                "ms-azuretools.vscode-docker"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/opt/venv/bin/python",
+                "python.terminal.activateEnvironment": true,
+                "python.linting.enabled": true,
+                "python.linting.flake8Enabled": true,
+                "files.watcherExclude": {
+                    "**/var/log/**": true,
+                    "**/var/run/**": true
+                }
+            }
+        }
+    },
+    
+    // Development lifecycle scripts
+    "initializeCommand": "echo 'Initializing ML-Enhanced Snort3 development environment...'",
+    "onCreateCommand": "echo 'Container created successfully'",
+    "updateContentCommand": "echo 'Content updated'",
+    
+    // Container user (run as root for network access)
+    "remoteUser": "root",
+    "containerUser": "root"
+}

@@ -1,59 +1,16 @@
 # snortMakeShiftInstall
-
 A python executable to install snort3 the networking application and then configure it for IDS/IPS
 
-## GitHub Actions Integration
+## Environment configuration
 
-This repository includes GitHub Actions workflows for automated IDS/IPS decision making and packet filtering using self-hosted runners.
-
-### Features
-
-- **IDS/IPS Packet Analysis**: Automated network packet analysis using Snort3
-- **Packet Filtering Decision**: Dynamic rule generation and filtering based on analysis
-- **Runner Communication Hub**: Centralized communication and coordination between workflows
-- **Self-Hosted Runner Support**: Dedicated runners for handling sensitive network traffic
-
-### Quick Start
-
-1. **Set up a self-hosted runner** with Snort3 installed (see [Runner Setup Guide](.github/RUNNER_SETUP.md))
-2. **Configure your runner** with the `snort-runner` label
-3. **Trigger workflows** manually from the Actions tab or via API
-
-### Workflows
-
-- **IDS/IPS Packet Analysis** - Analyze network packets for threats and anomalies
-- **Packet Filtering Decision** - Generate and apply Snort filtering rules
-- **Runner Communication Hub** - Coordinate communication between runners and monitor system status
-
-### Documentation
-
-- [Runner Setup Guide](.github/RUNNER_SETUP.md) - Complete setup instructions
-- [API Examples](examples/api-examples.json) - Integration examples
-- [Snort Configuration](examples/snort.lua) - Example Snort3 configuration
-- [Sample Rules](examples/local.rules) - Example Snort detection rules
-
-### Architecture
+Copy `.env.example` to `.env` (or export the variables manually) and populate the real values before launching the container:
 
 ```
-GitHub Actions Workflows
-    ├── IDS/IPS Analysis
-    │   └── Analyzes packets → Triggers filtering (IPS mode)
-    ├── Packet Filtering
-    │   └── Generates rules → Notifies communication hub
-    └── Communication Hub
-        └── Coordinates workflows → Monitors system status
+cp .env.example .env
 ```
 
-### Usage
+At minimum you must set `ML_API_KEY` to your OpenAI API key. The startup scripts also accept `OPENAI_API_KEY` as an alias. When either variable is present, the entrypoint will run `setup_openai_api.sh --auto` to generate `/etc/snort/ml_runner/api_config.json` and `ml_runner.env` inside the container.
 
-Trigger workflows from the Actions tab or programmatically:
+## Self-hosted runner workflow
 
-```bash
-curl -L -X POST \
-  -H "Accept: application/vnd.github+json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  https://api.github.com/repos/YOUR_USERNAME/snortMakeShiftInstall/dispatches \
-  -d '{"event_type":"analyze_packets","client_payload":{"pcap_file":"traffic.pcap","analysis_mode":"ips","sensitivity":"high"}}'
-```
-
-For detailed usage instructions, see the [Runner Setup Guide](.github/RUNNER_SETUP.md).
+The repository ships with a `Self-Hosted Runner Ping` workflow (`.github/workflows/self-hosted-runner-ping.yml`) that targets the `self-hosted`/`snort-runner` labels. Trigger it via **Actions → Self-Hosted Runner Ping → Run workflow** to send a message payload to the runner, capture context such as `RUNNER_NAME`, and upload the resulting log as an artifact.

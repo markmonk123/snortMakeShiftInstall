@@ -125,11 +125,11 @@ file_id = {
     file_rules = {},
 }
 
--- Include rule files
-ips.include = RULE_PATH .. '/local.rules'
--- Note: To include multiple rule files, add them separately or use:
--- Safer approach: preserve existing ips configuration by setting ips.include to a list:
--- ips.include = { RULE_PATH .. '/local.rules', RULE_PATH .. '/snort3-community.rules' }
+-- Include rule files (local custom rules + community rules)
+ips.include = {
+    RULE_PATH .. '/local.rules',
+    RULE_PATH .. '/snort3-community.rules'
+}
 
 -- Performance monitoring
 perf_monitor = {

@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  snort-ml-enhanced:
+    image: teamelitekrb/snort-dev-ml-enhanced:snortDevML
+    build:
+      context: .
+      dockerfile: Dockerfile.clean
+    container_name: snort-ml-enhanced
+    hostname: snort-ml-host
+    
+    # Network configuration for packet capture
+    network_mode: "host"
+    
+    # Privileged mode for network monitoring
+    privileged: true
+    
+    # Environment variables
+    environment:
+      - ML_API_KEY=${ML_API_KEY:-}
+      - PYTHONUNBUFFERED=1
+      - SNORT_INTERFACE=eth0
+      
+    # Volume mounts
+    volumes:
+      # Logs
+      - snort-logs:/var/log/snort
+      - snort-runs:/var/run
+      
+      # Configuration (optional - mount your own configs)
+      - ./examples/snort.lua:/usr/local/etc/snort/snort.lua:ro
+      - ./examples/local.rules:/usr/local/etc/snort/rules/local.rules:ro
+      
+      # API configuration (optional - for persistent API key storage)
+      # - ./api_config.json:/etc/snort/ml_runner/api_config.json:ro
+      
+      # Custom rules directory
+      - snort-rules:/usr/local/etc/snort/rules
+      
+    # Restart policy
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "snort"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.5'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # Optional: Separate ML-only service for distributed processing
+  ml-runner-only:
+    image: teamelitekrb/snort-dev-ml-enhanced:snortDevML
+    container_name: ml-runner-standalone
+    profiles:
+      - ml-only
+    
+    command: ["ml-only"]
+    
+    environment:
+      - ML_API_KEY=${ML_API_KEY:-}
+      - PYTHONUNBUFFERED=1
+      
+    volumes:
+      - snort-logs:/var/log/snort:ro
+      - snort-rules:/usr/local/etc/snort/rules
+      
+    restart: unless-stopped
+    
+    depends_on:
+      - snort-ml-enhanced
+    
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+
+  # Optional: Snort-only service for dedicated IDS
+  snort-only:
+    image: teamelitekrb/snort-dev-ml-enhanced:snortDevML
+    container_name: snort-ids-only
+    profiles:
+      - ids-only
+    
+    command: ["snort-only"]
+    
+    network_mode: "host"
+    privileged: true
+    
+    environment:
+      - SNORT_INTERFACE=eth0
+      
+    volumes:
+      - snort-logs:/var/log/snort
+      - ./examples/snort.lua:/usr/local/etc/snort/snort.lua:ro
+      - ./examples/local.rules:/usr/local/etc/snort/rules/local.rules:ro
+      
+    restart: unless-stopped
+
+# Named volumes for persistence
+volumes:
+  snort-logs:
+    driver: local
+  snort-runs:
+    driver: local
+  snort-rules:
+    driver: local
+
+# Networks (if not using host networking)
+networks:
+  snort-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
