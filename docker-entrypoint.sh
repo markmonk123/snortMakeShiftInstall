@@ -16,8 +16,20 @@ fi
 # Ensure OpenAI API configuration is in place before attempting Snort operations
 if [ -x /app/setup_openai_api.sh ]; then
     echo "🛠️  Ensuring OpenAI API configuration..."
-    if ! /app/setup_openai_api.sh --auto; then
-        echo "⚠️  Automatic OpenAI setup encountered an issue. Continuing without OpenAI integration."
+    API_CONFIG_PATH="/etc/snort/ml_runner/api_config.json"
+    AUTO_KEY="${ML_API_KEY:-${OPENAI_API_KEY:-}}"
+
+    if [ -n "$AUTO_KEY" ]; then
+        if ! /app/setup_openai_api.sh --auto; then
+            echo "⚠️  Automatic OpenAI setup encountered an issue. Continuing without OpenAI integration."
+        fi
+    elif [ ! -f "$API_CONFIG_PATH" ] && [ -t 0 ]; then
+        echo "🔐 No existing OpenAI credentials detected. Launching interactive setup..."
+        if ! /app/setup_openai_api.sh; then
+            echo "⚠️  Interactive OpenAI setup failed or was cancelled. Continuing without OpenAI integration."
+        fi
+    else
+        echo "ℹ️  No environment key provided; using existing configuration if present."
     fi
 fi
 
@@ -60,10 +72,10 @@ case "$1" in
         ;;
     "bash")
         if [ "$#" -gt 1 ]; then
-            echo "� Running custom command: $@"
+            echo "🔧 Running custom command: $@"
             exec "$@"
         else
-            echo "�🐚 Starting interactive bash shell..."
+            echo "🐚 Starting interactive bash shell..."
             exec /bin/bash
         fi
         ;;

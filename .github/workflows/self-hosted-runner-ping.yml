@@ -1,0 +1,55 @@
+name: Self-Hosted Runner Ping
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Text to send to the self-hosted runner"
+        required: false
+        default: "Hello from GitHub Actions!"
+
+jobs:
+  ping-runner:
+    runs-on:
+      - self-hosted
+      - snort-runner
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Communicate with runner
+        id: communicate
+        run: |
+          echo "Sending message to self-hosted runner..."
+          echo "Runner name: ${RUNNER_NAME:-unknown}"
+          echo "Runner OS: ${RUNNER_OS:-unknown}"
+          echo "Workflow: $GITHUB_WORKFLOW"
+          echo "Run ID: $GITHUB_RUN_ID"
+
+          MESSAGE_FILE="runner-message-$(date +%Y%m%d-%H%M%S).log"
+          cat > "$MESSAGE_FILE" << EOF
+          Runner Communication Message
+          ============================
+          Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Runner: ${RUNNER_NAME:-unknown}
+          Operating System: ${RUNNER_OS:-unknown}
+          Workflow: $GITHUB_WORKFLOW
+          Run ID: $GITHUB_RUN_ID
+          Message Payload: "${{ inputs.message }}"
+          EOF
+
+          echo "message_file=$MESSAGE_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload runner message
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.communicate.outputs.message_file }}
+          path: ${{ steps.communicate.outputs.message_file }}
+          retention-days: 14
+
+      - name: Summarize message
+        run: |
+          echo "## Self-Hosted Runner Communication" >> $GITHUB_STEP_SUMMARY
+          echo "* Runner*: ${RUNNER_NAME:-unknown}" >> $GITHUB_STEP_SUMMARY
+          echo "*Message Payload*: ${{ inputs.message }}" >> $GITHUB_STEP_SUMMARY
+          echo "*Log File*: ${{ steps.communicate.outputs.message_file }}" >> $GITHUB_STEP_SUMMARY
